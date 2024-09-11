@@ -1,6 +1,8 @@
+#include "external/imgui/imgui.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
+#include <memory>
 #include <thread>
 #include <mutex>
 #include <stdio.h>
@@ -16,58 +18,137 @@
 #include <vector>
 #include <string>
 
-// Quaternion structure to hold four double components
-struct Quaternion {
-    mpfr_t r, i, j, k;  // Real and imaginary components
+#include <memory> // for std::unique_ptr and std::shared_ptr
+
+// Quaternion struct
+// Constructor can take either 4 strings or 4 doubles, or nothing for all zeros.
+// Copy constructor and assignment operator are defined.
+// .set(4*str), .set(4*double), 
+#include "quaternion.hpp"
+
+// C++11 make_unique and make_shared
+template <typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args&&... args) {
+    return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
+// Helper function to create a shared pointer ()
+template <typename T, typename... Args>
+std::shared_ptr<T> make_shared(Args&&... args) {
+    return std::shared_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
+// Beam class with Quaternion for mu and sigma
+class Beam {
+public:
+    Quaternion mu;                  // Quaternion for mu parameters
+    Quaternion sigma;               // Quaternion for sigma parameters
+    int samples_total;
+    int samples_current;
+    std::string seed_start; // String seed
+    // MPFR_PRNG_state state_current;   // State of the PRNG
+
+    Beam() : samples_total(0), samples_current(0), seed_start("") {
+        printf("Entering Beam constructor. Parameters: %d %d %s\n", samples_total, samples_current, seed_start.c_str());
+        // initialize quaternion variables
+        mpfr_set_d(mu.r, 0.0, MPFR_RNDN);
+        mpfr_set_d(mu.i, 0.0, MPFR_RNDN);
+        mpfr_set_d(mu.j, 0.0, MPFR_RNDN);
+        mpfr_set_d(mu.k, 0.0, MPFR_RNDN);
+
+        mpfr_set_d(sigma.r, 0.0, MPFR_RNDN);
+        mpfr_set_d(sigma.i, 0.0, MPFR_RNDN);
+        mpfr_set_d(sigma.j, 0.0, MPFR_RNDN);
+        mpfr_set_d(sigma.k, 0.0, MPFR_RNDN);
+
+        // Initialize the PRNG state
+        // mpfr_prng_init(state_current);
+
+    }
+
+    ~Beam() {
+        printf("Entering Beam destructor\n");
+        // Destructor to clean up if needed
+    }
+
+    void get_sample(/*args*/) {
+        // Method to get a sample
+    }
 };
 
 
-
-// Beam structure with Quaternion for mu and sigma
-//class Beam {
-//    public:
-//        Quaternion mu;                  // Quaternion for mu parameters
-//        Quaternion sigma;               // Quaternion for sigma parameters
-//        int samples_total;
-//        int samples_current;
-//        std::string seed_start; // String seed
-//        //MPFR_PRNG_state state_current;   // State of the PRNG
-//        void get_sample(&result);        // Method to get a sample
-//};
-
-
-
-
-// Plate structure
-struct Plate {
+// Plate class
+class Plate {
+public:
     /* 4D to 3D projection matrix */
     mpfr_t projection4[5][4];        // Projection matrix
     /*  3D to 2D projection matrix */
-    mpfr_t projection3[4][3];      // Projection matrix
+    mpfr_t projection3[4][3];        // Projection matrix
     // ColorMap colormap;              // Color map
-    int width, height;                // Dimensions
+    int width, height;               // Dimensions
     std::vector<std::vector<int64_t>> data; // Data
-    std::vector<std::mutex> row_locks; // Locks for each row (TODO: make ReadWriteLock)
+    //std::vector<std::mutex> row_locks; // Locks for each row (TODO: make ReadWriteLock)
 
+    Plate(int w, int h) : width(w), height(h) {
+        // Initialize MPFR variables
+        for (int i = 0; i < 5; i++)
+            for (int j = 0; j < 4; j++)
+                mpfr_init(projection4[i][j]);
+
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 3; j++)
+                mpfr_init(projection3[i][j]);
+
+        // Initialize data and locks
+        data.resize(width, std::vector<int64_t>(height, 0));
+        // row_locks.resize(height); // This makes the compiler angry!
+        //for (int i = 0; i < height; i++)
+        //    row_locks.push_back(std::mutex());
+        // This still makes the compiler angry!
+    }
+    
+    ~Plate() {
+        // Clear MPFR variables
+        for (int i = 0; i < 5; i++)
+            for (int j = 0; j < 4; j++)
+                mpfr_clear(projection4[i][j]);
+
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 3; j++)
+                mpfr_clear(projection3[i][j]);
+    }
+    
+    // Methods for loading, saving, receiving a quaternion, etc.
+    // void loadFromFile(const std::string& filename);
+    // void saveToFile(const std::string& filename);
+    // void receiveQuaternion(const Quaternion& q, int iterCount);
+    // std::vector<std::vector<uint8_t>> getScaledData() const;
 };
-// except it needs to be a class so that we can just send it a quaternion and its iter count and it will do the rest.
-// It should contain methods for loading from file, saving to file (do we need protobuf for this? Or can we just print floats in hexadecimal plus some header?),
-// method to receive a quaternion for plotting, method for returning the 2D array scaled to 0-255 integers, ...
 
 // Global state
 
 // Beams section
 bool show_beams_window = true;
-//std::vector<Beam> beams;
+bool show_beam_modal = false;
+std::vector<std::unique_ptr<Beam>> beams;
 int cpu_threads = 1;
 bool beams_on = false;
 
+
 // Model section
 bool show_model_window = true;
+const char* models[] = { "Mandelbrot", "Julia", "Burning Ship", "Tricorn", "Mandelbar", "Phoenix", "Newton", "Halley", "Householder", "Laguerre", "Secant", "Inverse", "Quartic", "Quintic", "Sextic", "Heptic", "Octic", "Nonic", "Decic", "Cubic", "Quadratic", "Linear", "Identity", "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten" };
+int item_current = 0;
+int max_iterations = 100;
+float escape_radius = 64.0f;
 
 // Plates section
 bool show_plates_window = true;
-std::vector<Plate> plates;
+bool show_plate_modal = false;
+std::vector<std::unique_ptr<Plate>> plates;
+// color map
+const char* colormaps[] = { "Rainbow", "Grayscale", "Hot", "Cool", "Spring", "Summer", "Autumn", "Winter", "Bone", "Copper", "Pink", "Jet", "Hsv", "Flag", "Prism", "Ocean", "Cubehelix", "Turbo", "Viridis", "Plasma", "Inferno", "Magma", "Cividis" };
+
 
 
 bool show_preferences_window = false;
@@ -125,9 +206,9 @@ static void ShowMainMenuBar()
         if (ImGui::BeginMenu("Help"))
         {
             ImGui::MenuItem("Show ImGui Demo", NULL, &show_imgui_demo);
-            ImGuiIO& io = ImGui::GetIO(); // What does `ImGuiIO& io = ...` do? Answer: It creates a reference to the ImGuiIO struct. 
-            ImGui::Separator();
+            ImGuiIO& io = ImGui::GetIO();
             ImGui::Text("Dear ImGui %s", IMGUI_VERSION);
+            ImGui::Separator();
             ImGui::Text("GUI loop: %.3f ms/frm (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate); // Should this be ImGui::Text or ImGui::MenuItem?
             ImGui::Text("Beams on: %s", beams_on ? "yes" : "no");
             ImGui::Separator();
@@ -216,6 +297,8 @@ int main(int, char**)
     // Our state
 
     InitializeData();
+    int edit_beam_index = -1;
+    int edit_plate_index = -1;
 
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
@@ -229,10 +312,6 @@ int main(int, char**)
     while (!done)
     {
         // Poll and handle events (inputs, window resize, etc.)
-        // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
-        // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
-        // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
-        // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
@@ -253,42 +332,162 @@ int main(int, char**)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
         ShowMainMenuBar();
+
+        // Enable docking
         ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
-
-        // Controls window
-        /*{
-            ImGuiWindowFlags root_window_flags = //ImGuiWindowFlags_NoTitleBar |
-                                //ImGuiWindowFlags_NoResize |
-                                //ImGuiWindowFlags_NoMove |
-                                //ImGuiWindowFlags_NoCollapse |
-                                //ImGuiWindowFlags_NoBringToFrontOnFocus;
-                                0;
-
-            ImGui::Begin("Rainbrot n+1", NULL, root_window_flags);
-
-            
-            ImGui::End();
-        }*/
-
         // Beams window
+        int to_delete = -1;
         if (show_beams_window)
         {
-            // Dock to the left of the root window
-
+            ImGui::SetNextWindowDockID(0, ImGuiCond_FirstUseEver);
             ImGui::Begin("Beams", &show_beams_window);
+            ImGui::Text("Total number of beams: %lu", beams.size());
+            ImGui::BeginChild("BeamsList", ImVec2(0, 300), true);
+            for (size_t i = 0; i < beams.size(); i++)
+            {
+                char label[128];
+                sprintf(label, "Beam %zu", i);  // Corrected to use %zu for size_t
+                if (ImGui::CollapsingHeader(label))
+                {
+                    ImGui::Text("Mu:    %f + %f i + %f j + %f k", mpfr_get_d(beams[i]->mu.r, MPFR_RNDN), mpfr_get_d(beams[i]->mu.i, MPFR_RNDN), mpfr_get_d(beams[i]->mu.j, MPFR_RNDN), mpfr_get_d(beams[i]->mu.k, MPFR_RNDN));
+                    ImGui::Text("Sigma: %f + %f i + %f j + %f k", mpfr_get_d(beams[i]->sigma.r, MPFR_RNDN), mpfr_get_d(beams[i]->sigma.i, MPFR_RNDN), mpfr_get_d(beams[i]->sigma.j, MPFR_RNDN), mpfr_get_d(beams[i]->sigma.k, MPFR_RNDN));
+                    ImGui::Text("N: %d / %d", beams[i]->samples_current, beams[i]->samples_total);
+                    ImGui::ProgressBar(beams[i]->samples_total ? (float)beams[i]->samples_current / (float)beams[i]->samples_total : 0);
+                    ImGui::Text("Seed: %s", beams[i]->seed_start.c_str());
+
+                    // create string for label ("Edit" + i):
+                    std::string edit_label = "Edit##beam_" + std::to_string(i);
+                    if (ImGui::Button(edit_label.c_str()))
+                    {
+                        show_beam_modal = true;
+                        edit_beam_index = i;  // Store the current index for editing
+                    }
+
+                    ImGui::SameLine();
+
+                    std::string remove_label = "Remove##beam_" + std::to_string(i);
+                    if (ImGui::Button(remove_label.c_str()))
+                    {
+                        to_delete = i;
+                    }
+                }
+            }
+            if (to_delete != -1)
+            {
+                beams.erase(beams.begin() + to_delete);
+                to_delete = -1;
+            }
+            ImGui::EndChild();
             if (ImGui::Button("Add Beam"))
             {
-                //beams.push_back({
-                
+                show_beam_modal = true;
+                edit_beam_index = -1; // New beam
             }
             ImGui::End();
         }
+
+
+        
+        // Modal for adding/editing beam
+        
+        // String for modal name (string, edit_beam_index != -1 ? "Edit Beam" + ID : "Add Beam"):
+        std::string beam_modal_name = edit_beam_index != -1 ? "Edit Beam " + std::to_string(edit_beam_index) : "Add Beam";
+
+        if (show_beam_modal)
+        {
+            if (!ImGui::IsPopupOpen(beam_modal_name.c_str())){
+                ImGui::OpenPopup(beam_modal_name.c_str());
+            }
+        }
+        if(ImGui::BeginPopupModal(beam_modal_name.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            static int samples_total = 0;
+            static char seed_start[128] = "";
+            static char mu_r[128] = "0.0";
+            static char mu_i[128] = "0.0";
+            static char mu_j[128] = "0.0";
+            static char mu_k[128] = "0.0";
+            static char sigma_r[128] = "0.0";
+            static char sigma_i[128] = "0.0";
+            static char sigma_j[128] = "0.0";
+            static char sigma_k[128] = "0.0";
+
+            static bool preload_variables_from_vector = true;
+
+            if (edit_beam_index != -1 && beams.size() > edit_beam_index && preload_variables_from_vector)
+            {
+                // Pre-fill with existing data if editing
+                Beam* beam = beams[edit_beam_index].get();
+                samples_total = beam->samples_total;
+                strcpy(seed_start, beam->seed_start.c_str());
+                beam->mu.get(mu_r, mu_i, mu_j, mu_k);
+                beam->sigma.get(sigma_r, sigma_i, sigma_j, sigma_k);
+                preload_variables_from_vector = false;
+            }
+
+            ImGui::InputInt("Total Samples", &samples_total);
+            ImGui::InputText("Seed Start", seed_start, IM_ARRAYSIZE(seed_start));
+            ImGui::InputText("Mu r", mu_r, IM_ARRAYSIZE(mu_r));
+            ImGui::InputText("Mu i", mu_i, IM_ARRAYSIZE(mu_i));
+            ImGui::InputText("Mu j", mu_j, IM_ARRAYSIZE(mu_j));
+            ImGui::InputText("Mu k", mu_k, IM_ARRAYSIZE(mu_k));
+            ImGui::InputText("Sigma r", sigma_r, IM_ARRAYSIZE(sigma_r));
+            ImGui::InputText("Sigma i", sigma_i, IM_ARRAYSIZE(sigma_i));
+            ImGui::InputText("Sigma j", sigma_j, IM_ARRAYSIZE(sigma_j));
+            ImGui::InputText("Sigma k", sigma_k, IM_ARRAYSIZE(sigma_k));
+
+            if (ImGui::Button("OK", ImVec2(120, 0))) 
+            {
+                preload_variables_from_vector = true;
+                printf("Saving beam data: %d %s %s %s %s %s %s %s %s %s\n", samples_total, seed_start, mu_r, mu_i, mu_j, mu_k, sigma_r, sigma_i, sigma_j, sigma_k);
+                if (edit_beam_index == -1)
+                {
+                    // Creating a new beam
+                    printf("Creating new beam\n");
+                    std::unique_ptr<Beam> new_beam = make_unique<Beam>();
+                    beams.push_back(std::move(new_beam));
+                    edit_beam_index = beams.size() - 1; // Set the new index
+                }
+
+                // Set the beam data based on user input
+                //Beam* beam = beams[edit_beam_index].get();
+                // Do it using std::unique_ptr
+                Beam* beam = beams[edit_beam_index].get();
+                beam->samples_total = samples_total;
+                beam->seed_start = seed_start;
+                beam->mu.set(mu_r, mu_i, mu_j, mu_k);
+                beam->sigma.set(sigma_r, sigma_i, sigma_j, sigma_k);
+
+                
+                ImGui::CloseCurrentPopup();
+                show_beam_modal = false;
+                edit_beam_index = -1;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                preload_variables_from_vector = true;
+                ImGui::CloseCurrentPopup();
+                show_beam_modal = false;
+                edit_beam_index = -1;
+            }
+            
+            ImGui::EndPopup();
+        }
+
 
         // Model window
         if (show_model_window)
         {
             ImGui::Begin("Model", &show_model_window);
+            // Drop down for model
+            ImGui::Combo("Model", &item_current, models, IM_ARRAYSIZE(models));
+            // Max Iterations
+            ImGui::InputInt("Max Iterations", &max_iterations);
+            // Escape Radius
+            ImGui::InputFloat("Escape Radius", &escape_radius);
+            
             ImGui::End();
         }
 
@@ -296,10 +495,7 @@ int main(int, char**)
         if (show_plates_window)
         {
             ImGui::Begin("Plates", &show_plates_window);
-            // Total number of plates:
             ImGui::Text("Total number of plates: %lu", plates.size());
-            // List of plates:
-            // Bounding scrolling box:
             ImGui::BeginChild("PlatesList", ImVec2(0, 300), true);
             for (size_t i = 0; i < plates.size(); i++)
             {
@@ -307,20 +503,85 @@ int main(int, char**)
                 sprintf(label, "Plate %lx", i);
                 if (ImGui::CollapsingHeader(label))
                 {
-                    ImGui::Text("Width: %d", plates[i].width);
-                    ImGui::Text("Height: %d", plates[i].height);
-                    //ImGui::Text("Data: %d x %d", plates[i].data.size(), plates[i].data[0].size());
+                    ImGui::Text("Width: %d", plates[i]->width);
+                    ImGui::Text("Height: %d", plates[i]->height);
+
+                    if (ImGui::Button("Edit"))
+                    {
+                        edit_plate_index = i;
+                        show_plate_modal = true;
+                    }
+
+                    ImGui::SameLine();
+
+                    if (ImGui::Button("Remove"))
+                    {
+                        plates.erase(plates.begin() + i);
+                        break;
+                    }
                 }
             }
             ImGui::EndChild();
-            // Add plate button:
             if (ImGui::Button("Add Plate"))
             {
-                //plates.push_back({1024, 1024, std::vector<std::vector<int64_t>>(1024, std::vector<int64_t>(1024, 0))});
+                show_plate_modal = true;
+                edit_plate_index = -1; // New plate
             }
             ImGui::End();
         }
 
+        // Modal for adding/editing plate
+        if (show_plate_modal)
+        {
+            // set modal name variable (string, edit_plate_index != -1 ? "Edit Plate" : "Add Plate"):
+            std::string modal_name = edit_plate_index != -1 ? "Edit Plate" : "Add Plate";
+            
+            ImGui::OpenPopup(modal_name.c_str());
+            ImGui::BeginPopupModal("Add/Edit Plate", NULL, ImGuiWindowFlags_AlwaysAutoResize);
+
+            static int width = 1024;
+            static int height = 1024;
+
+            if (edit_plate_index != -1)
+            {
+                // Pre-fill with existing data
+                Plate* plate = plates[edit_plate_index].get();
+                width = plate->width;
+                height = plate->height;
+            }
+
+            ImGui::InputInt("Width", &width);
+            ImGui::InputInt("Height", &height);
+
+            if (ImGui::Button("OK", ImVec2(120, 0)))
+            {
+                printf("Width: %d, Height: %d\n", width, height);
+                printf("Edit Plate Index: %d\n", edit_plate_index);
+                if (edit_plate_index == -1)
+                {
+                    printf("Creating new plate\n");
+
+                    std::unique_ptr<Plate> new_plate = make_unique<Plate>(width, height);
+                    plates.push_back(std::move(new_plate));
+                }
+                else
+                {
+                    printf("Editing existing plate\n");
+                    plates[edit_plate_index]->width = width;
+                    plates[edit_plate_index]->height = height;
+                }
+
+                ImGui::CloseCurrentPopup();
+                show_plate_modal = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+                show_plate_modal = false;
+            }
+            ImGui::EndPopup();
+        }
 
         if (show_imgui_demo)
         {
