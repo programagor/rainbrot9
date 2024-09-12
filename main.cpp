@@ -451,8 +451,6 @@ int main(int, char**)
                 }
 
                 // Set the beam data based on user input
-                //Beam* beam = beams[edit_beam_index].get();
-                // Do it using std::unique_ptr
                 Beam* beam = beams[edit_beam_index].get();
                 beam->samples_total = samples_total;
                 beam->seed_start = seed_start;
@@ -500,26 +498,33 @@ int main(int, char**)
             for (size_t i = 0; i < plates.size(); i++)
             {
                 char label[128];
-                sprintf(label, "Plate %lx", i);
+                sprintf(label, "Plate %zu", i);  // Corrected to use %zu for size_t
                 if (ImGui::CollapsingHeader(label))
                 {
                     ImGui::Text("Width: %d", plates[i]->width);
                     ImGui::Text("Height: %d", plates[i]->height);
 
-                    if (ImGui::Button("Edit"))
+                    // create string for label ("Edit" + i):
+                    std::string edit_label = "Edit##plate_" + std::to_string(i);
+                    if (ImGui::Button(edit_label.c_str()))
                     {
-                        edit_plate_index = i;
                         show_plate_modal = true;
+                        edit_plate_index = i;  // Store the current index for editing
                     }
 
                     ImGui::SameLine();
 
-                    if (ImGui::Button("Remove"))
+                    std::string remove_label = "Remove##plate_" + std::to_string(i);
+                    if (ImGui::Button(remove_label.c_str()))
                     {
-                        plates.erase(plates.begin() + i);
-                        break;
+                        to_delete = i;
                     }
                 }
+            }
+            if (to_delete != -1)
+            {
+                plates.erase(plates.begin() + to_delete);
+                to_delete = -1;
             }
             ImGui::EndChild();
             if (ImGui::Button("Add Plate"))
@@ -531,55 +536,65 @@ int main(int, char**)
         }
 
         // Modal for adding/editing plate
+        std::string plate_modal_name = edit_plate_index != -1 ? "Edit Plate " + std::to_string(edit_plate_index) : "Add Plate";
+
         if (show_plate_modal)
         {
-            // set modal name variable (string, edit_plate_index != -1 ? "Edit Plate" : "Add Plate"):
-            std::string modal_name = edit_plate_index != -1 ? "Edit Plate" : "Add Plate";
-            
-            ImGui::OpenPopup(modal_name.c_str());
-            ImGui::BeginPopupModal("Add/Edit Plate", NULL, ImGuiWindowFlags_AlwaysAutoResize);
-
+            if (!ImGui::IsPopupOpen(plate_modal_name.c_str())){
+                ImGui::OpenPopup(plate_modal_name.c_str());
+            }
+        }
+        if(ImGui::BeginPopupModal(plate_modal_name.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize))
+        {
             static int width = 1024;
             static int height = 1024;
 
-            if (edit_plate_index != -1)
+            static bool preload_variables_from_vector = true;
+
+            if (edit_plate_index != -1 && plates.size() > edit_plate_index && preload_variables_from_vector)
             {
-                // Pre-fill with existing data
+                // Pre-fill with existing data if editing
                 Plate* plate = plates[edit_plate_index].get();
                 width = plate->width;
                 height = plate->height;
+                preload_variables_from_vector = false;
             }
 
             ImGui::InputInt("Width", &width);
             ImGui::InputInt("Height", &height);
 
-            if (ImGui::Button("OK", ImVec2(120, 0)))
+            if (ImGui::Button("OK", ImVec2(120, 0))) 
             {
-                printf("Width: %d, Height: %d\n", width, height);
-                printf("Edit Plate Index: %d\n", edit_plate_index);
+                preload_variables_from_vector = true;
+                printf("Saving plate data: %d %d\n", width, height);
                 if (edit_plate_index == -1)
                 {
+                    // Creating a new plate
                     printf("Creating new plate\n");
-
                     std::unique_ptr<Plate> new_plate = make_unique<Plate>(width, height);
                     plates.push_back(std::move(new_plate));
-                }
-                else
-                {
-                    printf("Editing existing plate\n");
-                    plates[edit_plate_index]->width = width;
-                    plates[edit_plate_index]->height = height;
+                    edit_plate_index = plates.size() - 1; // Set the new index
                 }
 
+                // Set the plate data based on user input
+                Plate* plate = plates[edit_plate_index].get();
+                plate->width = width;
+                plate->height = height;
+
+                
                 ImGui::CloseCurrentPopup();
                 show_plate_modal = false;
+                edit_plate_index = -1;
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(120, 0)))
             {
+                preload_variables_from_vector = true;
                 ImGui::CloseCurrentPopup();
                 show_plate_modal = false;
+                edit_plate_index = -1;
             }
+            
             ImGui::EndPopup();
         }
 
