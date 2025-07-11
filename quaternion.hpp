@@ -92,6 +92,89 @@ struct Quaternion {
         *j_d = mpfr_get_d(j, MPFR_RNDN);
         *k_d = mpfr_get_d(k, MPFR_RNDN);
     }
+
+    mpfr_ptr component(int idx) {
+        switch(idx) {
+            case 0: return r; break;
+            case 1: return i; break;
+            case 2: return j; break;
+            default: return k;
+        }
+    }
+
+    mpfr_srcptr component(int idx) const {
+        switch(idx) {
+            case 0: return r; break;
+            case 1: return i; break;
+            case 2: return j; break;
+            default: return k;
+        }
+    }
 };
+
+inline void quaternion_add(const Quaternion& a, const Quaternion& b, Quaternion& res) {
+    mpfr_add(res.r, a.r, b.r, MPFR_RNDN);
+    mpfr_add(res.i, a.i, b.i, MPFR_RNDN);
+    mpfr_add(res.j, a.j, b.j, MPFR_RNDN);
+    mpfr_add(res.k, a.k, b.k, MPFR_RNDN);
+}
+
+inline void quaternion_mul(const Quaternion& a, const Quaternion& b, Quaternion& res) {
+    mpfr_t t1, t2;
+    mpfr_inits(t1, t2, (mpfr_ptr)0);
+
+    // r component
+    mpfr_mul(t1, a.r, b.r, MPFR_RNDN);
+    mpfr_mul(t2, a.i, b.i, MPFR_RNDN);
+    mpfr_sub(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.j, b.j, MPFR_RNDN);
+    mpfr_sub(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.k, b.k, MPFR_RNDN);
+    mpfr_sub(res.r, t1, t2, MPFR_RNDN);
+
+    // i component
+    mpfr_mul(t1, a.r, b.i, MPFR_RNDN);
+    mpfr_mul(t2, a.i, b.r, MPFR_RNDN);
+    mpfr_add(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.j, b.k, MPFR_RNDN);
+    mpfr_add(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.k, b.j, MPFR_RNDN);
+    mpfr_sub(res.i, t1, t2, MPFR_RNDN);
+
+    // j component
+    mpfr_mul(t1, a.r, b.j, MPFR_RNDN);
+    mpfr_mul(t2, a.i, b.k, MPFR_RNDN);
+    mpfr_sub(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.j, b.r, MPFR_RNDN);
+    mpfr_add(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.k, b.i, MPFR_RNDN);
+    mpfr_add(res.j, t1, t2, MPFR_RNDN);
+
+    // k component
+    mpfr_mul(t1, a.r, b.k, MPFR_RNDN);
+    mpfr_mul(t2, a.i, b.j, MPFR_RNDN);
+    mpfr_add(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.j, b.i, MPFR_RNDN);
+    mpfr_sub(t1, t1, t2, MPFR_RNDN);
+    mpfr_mul(t2, a.k, b.r, MPFR_RNDN);
+    mpfr_add(res.k, t1, t2, MPFR_RNDN);
+
+    mpfr_clears(t1, t2, (mpfr_ptr)0);
+}
+
+inline double quaternion_norm2(const Quaternion& q) {
+    mpfr_t sum, tmp;
+    mpfr_inits(sum, tmp, (mpfr_ptr)0);
+    mpfr_mul(sum, q.r, q.r, MPFR_RNDN);
+    mpfr_mul(tmp, q.i, q.i, MPFR_RNDN);
+    mpfr_add(sum, sum, tmp, MPFR_RNDN);
+    mpfr_mul(tmp, q.j, q.j, MPFR_RNDN);
+    mpfr_add(sum, sum, tmp, MPFR_RNDN);
+    mpfr_mul(tmp, q.k, q.k, MPFR_RNDN);
+    mpfr_add(sum, sum, tmp, MPFR_RNDN);
+    double result = mpfr_get_d(sum, MPFR_RNDN);
+    mpfr_clears(sum, tmp, (mpfr_ptr)0);
+    return result;
+}
 
 #endif
