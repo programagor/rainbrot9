@@ -45,37 +45,54 @@ public:
     Quaternion sigma;               // Quaternion for sigma parameters
     int samples_total;
     int samples_current;
-    std::string seed_start; // String seed
-    // MPFR_PRNG_state state_current;   // State of the PRNG
+    gmp_randstate_t state_current;   // State of the PRNG
+    //std::string seed_start; // String seed
+    mpz_t seed_start; // Integer seed
+    //MPFR_PRNG_state state_current;   // State of the PRNG
 
-    Beam() : samples_total(0), samples_current(0), seed_start("") {
-        printf("Entering Beam constructor. Parameters: %d %d %s\n", samples_total, samples_current, seed_start.c_str());
+    Beam() : samples_total(0), samples_current(0) {
+        printf("Entering Beam constructor. Parameters: %d %d\n", samples_total, samples_current);
         // initialize quaternion variables
-        mpfr_set_d(mu.r, 0.0, MPFR_RNDN);
-        mpfr_set_d(mu.i, 0.0, MPFR_RNDN);
-        mpfr_set_d(mu.j, 0.0, MPFR_RNDN);
-        mpfr_set_d(mu.k, 0.0, MPFR_RNDN);
+        mu.set(0.0, 0.0, 0.0, 0.0);
 
-        mpfr_set_d(sigma.r, 0.0, MPFR_RNDN);
-        mpfr_set_d(sigma.i, 0.0, MPFR_RNDN);
-        mpfr_set_d(sigma.j, 0.0, MPFR_RNDN);
-        mpfr_set_d(sigma.k, 0.0, MPFR_RNDN);
+        sigma.set(0.0, 0.0, 0.0, 0.0);
+        gmp_randinit_default(state_current);
 
-        // Initialize the PRNG state
-        // mpfr_prng_init(state_current);
-
+        mpz_init(seed_start);
     }
 
     ~Beam() {
+        mpz_clear(seed_start);
+
         printf("Entering Beam destructor\n");
         // Destructor to clean up if needed
     }
 
-    void get_sample(/*args*/) {
-        // Method to get a sample
+    void get_sample(Quaternion& q) {
+
+        // If first sample, need to seed the PRNG
+        if(samples_current == 0)
+        {
+            gmp_randseed(this->state_current, this->seed_start);
+        }
+
+        // Use PRNG and the Box-Muller transform to get a sample, which is stored in q
+        static Quaternion vars;
+
+        // Get two random numbers between 0 and 1
+        mpfr_urandom(vars.r, this->state_current, MPFR_RNDN);
+        mpfr_urandom(vars.i, this->state_current, MPFR_RNDN);
+        mpfr_urandom(vars.j, this->state_current, MPFR_RNDN);
+        mpfr_urandom(vars.k, this->state_current, MPFR_RNDN);
+
+        // Multiply by sigma and add mu
+        // q.r = q.r * sigma.r + mu.r;
+        // q.i = q.i * sigma.i + mu.i;
+        // q.j = q.j * sigma.j + mu.j;
+        // q.k = q.k * sigma.k + mu.k;
+
     }
 };
-
 
 // Plate class
 class Plate {
@@ -123,6 +140,12 @@ public:
     // void saveToFile(const std::string& filename);
     // void receiveQuaternion(const Quaternion& q, int iterCount);
     // std::vector<std::vector<uint8_t>> getScaledData() const;
+
+    // Method to insert a secondary photon into the projection pipeline.
+    void insertPhoton(const Quaternion& q, int energy) {
+        // First we project the 4D quaternion into 3D space
+        
+    }
 };
 
 // Global state
@@ -149,7 +172,7 @@ std::vector<std::unique_ptr<Plate>> plates;
 // color map
 const char* colormaps[] = { "Rainbow", "Grayscale", "Hot", "Cool", "Spring", "Summer", "Autumn", "Winter", "Bone", "Copper", "Pink", "Jet", "Hsv", "Flag", "Prism", "Ocean", "Cubehelix", "Turbo", "Viridis", "Plasma", "Inferno", "Magma", "Cividis" };
 
-
+bool done = false;
 
 bool show_preferences_window = false;
 
@@ -185,6 +208,7 @@ static void ShowMainMenuBar()
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "ALT+F4"))
             {
+                done = true;
             }
             ImGui::EndMenu();
         }
@@ -234,33 +258,33 @@ int main(int, char**)
     }
 
     // Decide GL+GLSL versions
-#if defined(IMGUI_IMPL_OPENGL_ES2)
-    // GL ES 2.0 + GLSL 100
-    const char* glsl_version = "#version 100";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#elif defined(__APPLE__)
-    // GL 3.2 Core + GLSL 150
-    const char* glsl_version = "#version 150";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-#else
-    // GL 3.0 + GLSL 130
-    const char* glsl_version = "#version 130";
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-#endif
+    #if defined(IMGUI_IMPL_OPENGL_ES2)
+        // GL ES 2.0 + GLSL 100
+        const char* glsl_version = "#version 100";
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    #elif defined(__APPLE__)
+        // GL 3.2 Core + GLSL 150
+        const char* glsl_version = "#version 150";
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); // Always required on Mac
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+    #else
+        // GL 3.0 + GLSL 130
+        const char* glsl_version = "#version 130";
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    #endif
 
-    // From 2.0.18: Enable native IME.
-#ifdef SDL_HINT_IME_SHOW_UI
-    SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
-#endif
+        // From 2.0.18: Enable native IME.
+    #ifdef SDL_HINT_IME_SHOW_UI
+        SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
+    #endif
 
     // Create window with graphics context
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
@@ -305,7 +329,7 @@ int main(int, char**)
 
 
     // Main loop
-    bool done = false;
+
 
     glClearColor(clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w);
 
@@ -354,8 +378,8 @@ int main(int, char**)
                     ImGui::Text("Sigma: %f + %f i + %f j + %f k", mpfr_get_d(beams[i]->sigma.r, MPFR_RNDN), mpfr_get_d(beams[i]->sigma.i, MPFR_RNDN), mpfr_get_d(beams[i]->sigma.j, MPFR_RNDN), mpfr_get_d(beams[i]->sigma.k, MPFR_RNDN));
                     ImGui::Text("N: %d / %d", beams[i]->samples_current, beams[i]->samples_total);
                     ImGui::ProgressBar(beams[i]->samples_total ? (float)beams[i]->samples_current / (float)beams[i]->samples_total : 0);
-                    ImGui::Text("Seed: %s", beams[i]->seed_start.c_str());
-
+                    ImGui::Text("Seed: %s", mpz_get_str(NULL, 10, beams[i]->seed_start));
+                    
                     // create string for label ("Edit" + i):
                     std::string edit_label = "Edit##beam_" + std::to_string(i);
                     if (ImGui::Button(edit_label.c_str()))
@@ -391,7 +415,6 @@ int main(int, char**)
         
         // Modal for adding/editing beam
         
-        // String for modal name (string, edit_beam_index != -1 ? "Edit Beam" + ID : "Add Beam"):
         std::string beam_modal_name = edit_beam_index != -1 ? "Edit Beam " + std::to_string(edit_beam_index) : "Add Beam";
 
         if (show_beam_modal)
@@ -403,7 +426,7 @@ int main(int, char**)
         if(ImGui::BeginPopupModal(beam_modal_name.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize))
         {
             static int samples_total = 0;
-            static char seed_start[128] = "";
+            static char seed_start[128] = "0";
             static char mu_r[128] = "0.0";
             static char mu_i[128] = "0.0";
             static char mu_j[128] = "0.0";
@@ -420,9 +443,9 @@ int main(int, char**)
                 // Pre-fill with existing data if editing
                 Beam* beam = beams[edit_beam_index].get();
                 samples_total = beam->samples_total;
-                strcpy(seed_start, beam->seed_start.c_str());
                 beam->mu.get(mu_r, mu_i, mu_j, mu_k);
                 beam->sigma.get(sigma_r, sigma_i, sigma_j, sigma_k);
+                mpz_get_str(seed_start, 10, beam->seed_start);
                 preload_variables_from_vector = false;
             }
 
@@ -453,7 +476,7 @@ int main(int, char**)
                 // Set the beam data based on user input
                 Beam* beam = beams[edit_beam_index].get();
                 beam->samples_total = samples_total;
-                beam->seed_start = seed_start;
+                mpz_set_str(beam->seed_start, seed_start, 10);
                 beam->mu.set(mu_r, mu_i, mu_j, mu_k);
                 beam->sigma.set(sigma_r, sigma_i, sigma_j, sigma_k);
 
@@ -595,6 +618,28 @@ int main(int, char**)
                 edit_plate_index = -1;
             }
             
+            ImGui::EndPopup();
+        }
+
+        // Modal for the Preferences window
+        if (show_preferences_window)
+        {
+            if (!ImGui::IsPopupOpen("Preferences")){
+                ImGui::OpenPopup("Preferences");
+            }
+        }
+        if(ImGui::BeginPopupModal("Preferences", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            static bool dummyCheck = false;
+            ImGui::Checkbox("what",&dummyCheck);
+
+
+            if (ImGui::Button("Ok", ImVec2(120, 0)))
+            {
+                ImGui::CloseCurrentPopup();
+                show_preferences_window = false;
+            }
+
             ImGui::EndPopup();
         }
 

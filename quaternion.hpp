@@ -8,10 +8,10 @@ struct Quaternion {
 
     Quaternion() {
         printf("Entering Quaternion constructor\n");
-        mpfr_init(r); printf("Initialized r. Address: %p\n", r);
-        mpfr_init(i); printf("Initialized i. Address: %p\n", i);
-        mpfr_init(j); printf("Initialized j. Address: %p\n", j);
-        mpfr_init(k); printf("Initialized k. Address: %p\n", k);
+        mpfr_init(r); printf("Initialized r. Address: %p\n", (void*)r);
+        mpfr_init(i); printf("Initialized i. Address: %p\n", (void*)i);
+        mpfr_init(j); printf("Initialized j. Address: %p\n", (void*)j);
+        mpfr_init(k); printf("Initialized k. Address: %p\n", (void*)k);
         
     }
 
@@ -33,10 +33,10 @@ struct Quaternion {
 
     ~Quaternion() {
         printf("Entering Quaternion destructor\n");
-        mpfr_clear(r); printf("Cleared r. Address: %p\n", r);
-        mpfr_clear(i); printf("Cleared i. Address: %p\n", i);
-        mpfr_clear(j); printf("Cleared j. Address: %p\n", j);
-        mpfr_clear(k); printf("Cleared k. Address: %p\n", k);
+        mpfr_clear(r); printf("Cleared r. Address: %p\n", (void*)r);
+        mpfr_clear(i); printf("Cleared i. Address: %p\n", (void*)i);
+        mpfr_clear(j); printf("Cleared j. Address: %p\n", (void*)j);
+        mpfr_clear(k); printf("Cleared k. Address: %p\n", (void*)k);
     }
 
     Quaternion(const Quaternion& q) {
@@ -59,7 +59,7 @@ struct Quaternion {
 
     // Function that takes 4 strings and sets the values of the quaternion
     void set(const char* r_str, const char* i_str, const char* j_str, const char* k_str, int base = 10) {
-        printf("Entering set with 4 strings: %s %s %s %s\n", r_str, i_str, j_str, k_str);
+        printf("Entering Quaternion set with 4 strings: %s %s %s %s\n", r_str, i_str, j_str, k_str);
         mpfr_set_str(r, r_str, base, MPFR_RNDN);
         mpfr_set_str(i, i_str, base, MPFR_RNDN);
         mpfr_set_str(j, j_str, base, MPFR_RNDN);
@@ -69,7 +69,7 @@ struct Quaternion {
 
     // Function that takes 4 doubles and sets the values of the quaternion
     void set(double r_d, double i_d, double j_d, double k_d) {
-        printf("Entering set with 4 doubles: %f %f %f %f\n", r_d, i_d, j_d, k_d);
+        printf("Entering Quaternion set with 4 doubles: %f %f %f %f\n", r_d, i_d, j_d, k_d);
         mpfr_set_d(r, r_d, MPFR_RNDN);
         mpfr_set_d(i, i_d, MPFR_RNDN);
         mpfr_set_d(j, j_d, MPFR_RNDN);
@@ -78,7 +78,7 @@ struct Quaternion {
 
     // Function that returns the values of the quaternion as strings
     void get(char* r_str, char* i_str, char* j_str, char* k_str, int precision = 10) {
-        printf("Entering get with precision %d\n", precision);
+        printf("Entering Quaternion get with precision %d\n", precision);
         mpfr_sprintf(r_str, "%.*Rf", precision, r);
         mpfr_sprintf(i_str, "%.*Rf", precision, i);
         mpfr_sprintf(j_str, "%.*Rf", precision, j);
