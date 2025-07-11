@@ -92,6 +92,80 @@ struct Quaternion {
         *j_d = mpfr_get_d(j, MPFR_RNDN);
         *k_d = mpfr_get_d(k, MPFR_RNDN);
     }
+
+    // Set all components to zero
+    void zero() {
+        mpfr_set_zero(r, 0);
+        mpfr_set_zero(i, 0);
+        mpfr_set_zero(j, 0);
+        mpfr_set_zero(k, 0);
+    }
+
+    // out = this + other
+    void add(const Quaternion& other, Quaternion& out) const {
+        mpfr_add(out.r, r, other.r, MPFR_RNDN);
+        mpfr_add(out.i, i, other.i, MPFR_RNDN);
+        mpfr_add(out.j, j, other.j, MPFR_RNDN);
+        mpfr_add(out.k, k, other.k, MPFR_RNDN);
+    }
+
+    // out = this * other
+    void mul(const Quaternion& other, Quaternion& out) const {
+        mpfr_t tmp;
+        mpfr_init(tmp);
+
+        // real part
+        mpfr_mul(out.r, r, other.r, MPFR_RNDN);
+        mpfr_mul(tmp, i, other.i, MPFR_RNDN);
+        mpfr_sub(out.r, out.r, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, j, other.j, MPFR_RNDN);
+        mpfr_sub(out.r, out.r, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, k, other.k, MPFR_RNDN);
+        mpfr_sub(out.r, out.r, tmp, MPFR_RNDN);
+
+        // i component
+        mpfr_mul(out.i, r, other.i, MPFR_RNDN);
+        mpfr_mul(tmp, i, other.r, MPFR_RNDN);
+        mpfr_add(out.i, out.i, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, j, other.k, MPFR_RNDN);
+        mpfr_sub(out.i, out.i, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, k, other.j, MPFR_RNDN);
+        mpfr_add(out.i, out.i, tmp, MPFR_RNDN);
+
+        // j component
+        mpfr_mul(out.j, r, other.j, MPFR_RNDN);
+        mpfr_mul(tmp, j, other.r, MPFR_RNDN);
+        mpfr_add(out.j, out.j, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, k, other.i, MPFR_RNDN);
+        mpfr_add(out.j, out.j, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, i, other.k, MPFR_RNDN);
+        mpfr_sub(out.j, out.j, tmp, MPFR_RNDN);
+
+        // k component
+        mpfr_mul(out.k, r, other.k, MPFR_RNDN);
+        mpfr_mul(tmp, k, other.r, MPFR_RNDN);
+        mpfr_add(out.k, out.k, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, i, other.j, MPFR_RNDN);
+        mpfr_add(out.k, out.k, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, j, other.i, MPFR_RNDN);
+        mpfr_sub(out.k, out.k, tmp, MPFR_RNDN);
+
+        mpfr_clear(tmp);
+    }
+
+    // |q|^2
+    void norm_sq(mpfr_t out) const {
+        mpfr_t tmp;
+        mpfr_init(tmp);
+        mpfr_mul(out, r, r, MPFR_RNDN);
+        mpfr_mul(tmp, i, i, MPFR_RNDN);
+        mpfr_add(out, out, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, j, j, MPFR_RNDN);
+        mpfr_add(out, out, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, k, k, MPFR_RNDN);
+        mpfr_add(out, out, tmp, MPFR_RNDN);
+        mpfr_clear(tmp);
+    }
 };
 
 #endif
