@@ -69,3 +69,4 @@ void Beam::reset() {
     samples_current = 0;
     state = Idle;
 }
+

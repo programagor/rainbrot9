@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <memory>
 
-Plate::Plate(int w, int h) : width(w), height(h) {
+Plate::Plate(int w, int h) : width(w), height(h), preview_open(false) {
     for(int i=0;i<2;++i)
         for(int j=0;j<4;++j)
             mpfr_init_set_d(projection[i][j], (i==j?1.0:0.0), MPFR_RNDN);

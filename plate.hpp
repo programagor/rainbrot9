@@ -16,6 +16,7 @@ public:
     int width, height;
     std::vector<std::vector<int64_t>> data;       // energy buffer
     std::vector<std::unique_ptr<std::mutex>> row_mutexes; // row locks
+    bool preview_open;
 
     Plate(int w, int h);
     ~Plate();

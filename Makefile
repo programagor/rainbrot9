@@ -21,7 +21,7 @@ SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_sdl2.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 
-TEST_SOURCES = tests/test_quaternion.cpp tests/test_plate.cpp beam.cpp plate.cpp model.cpp
+TEST_SOURCES = tests/test_quaternion.cpp tests/test_plate.cpp tests/test_beam.cpp beam.cpp plate.cpp model.cpp
 TEST_OBJS = $(TEST_SOURCES:.cpp=.o)
 UNAME_S := $(shell uname -s)
 LINUX_GL_LIBS = -lGL
@@ -78,11 +78,10 @@ all: $(EXE)
 	@echo Build complete for $(ECHO_MESSAGE)
 
 $(EXE): $(OBJS)
-	        $(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
+	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
 
 test: $(TEST_OBJS)
 	$(CXX) -o test_runner $^ $(CXXFLAGS) -Itests $(LIBS)
 
-
 clean:
-	        rm -f $(EXE) $(OBJS) $(TEST_OBJS) test_runner
+	$(RM) $(EXE) $(OBJS) $(TEST_OBJS) test_runner
