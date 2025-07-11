@@ -7,17 +7,33 @@
 
 class Beam {
 public:
-    Quaternion mu;
-    Quaternion sigma;
-    int samples_total;
-    int samples_current;
-    gmp_randstate_t state_current;
-    mpz_t seed_start;
+    enum BeamState { Idle, Running, Paused };
+
+    BeamState state;
+    Quaternion mu;               // Mean value for seed generation
+    Quaternion sigma;            // Standard deviation for seed generation
+    int samples_total;           // How many seeds to generate
+    int samples_current;         // Counter of generated seeds
+    gmp_randstate_t state_current; // Random state used for generation
+    mpz_t seed_start;            // Initial seed for reproducibility
+
+    int max_iterations;          // Fractal iteration cap
+    double escape_radius;        // Escape radius for divergence
 
     Beam();
     ~Beam();
 
+    // Generate a random seed quaternion distributed around mu,sigma
     void get_sample(Quaternion& q);
+
+    // Iterate z = z^2 + c starting from z=0.
+    // Returns true if the orbit escapes within max_iterations.
+    bool iterate_seed(const Quaternion& c, Quaternion& hit_point, int& iter);
+
+    // Control functions
+    void start();
+    void pause();
+    void reset();
 };
 
 #endif // BEAM_HPP

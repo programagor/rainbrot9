@@ -298,6 +298,39 @@ int main(int, char**)
                     {
                         to_delete = i;
                     }
+                    ImGui::SameLine();
+                    std::string start_label = "Start##beam_" + std::to_string(i);
+                    bool disable_start = (beams[i]->state == Beam::Running);
+                    if (disable_start)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Button(start_label.c_str()))
+                    {
+                        beams[i]->start();
+                    }
+                    if (disable_start)
+                        ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    std::string pause_label = "Pause##beam_" + std::to_string(i);
+                    bool disable_pause = (beams[i]->state != Beam::Running);
+                    if (disable_pause)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Button(pause_label.c_str()))
+                    {
+                        beams[i]->pause();
+                    }
+                    if (disable_pause)
+                        ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    std::string reset_label = "Reset##beam_" + std::to_string(i);
+                    bool disable_reset = (beams[i]->state != Beam::Paused);
+                    if (disable_reset)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Button(reset_label.c_str()))
+                    {
+                        beams[i]->reset();
+                    }
+                    if (disable_reset)
+                        ImGui::EndDisabled();
                 }
             }
             if (to_delete != -1)
@@ -311,6 +344,40 @@ int main(int, char**)
                 show_beam_modal = true;
                 edit_beam_index = -1; // New beam
             }
+            ImGui::SameLine();
+            bool disable_global_start = beams_on;
+            if (disable_global_start)
+                ImGui::BeginDisabled();
+            if (ImGui::Button("Start"))
+            {
+                for(auto& b : beams) b->start();
+                beams_on = true;
+            }
+            if (disable_global_start)
+                ImGui::EndDisabled();
+            ImGui::SameLine();
+            bool disable_global_pause = !beams_on;
+            if (disable_global_pause)
+                ImGui::BeginDisabled();
+            if (ImGui::Button("Pause"))
+            {
+                for(auto& b : beams) b->pause();
+                beams_on = false;
+            }
+            if (disable_global_pause)
+                ImGui::EndDisabled();
+            ImGui::SameLine();
+            bool paused_any = false;
+            for(auto& b : beams) if(b->state == Beam::Paused) paused_any = true;
+            bool disable_global_reset = !paused_any;
+            if (disable_global_reset)
+                ImGui::BeginDisabled();
+            if (ImGui::Button("Reset"))
+            {
+                for(auto& b : beams) b->reset();
+            }
+            if (disable_global_reset)
+                ImGui::EndDisabled();
             ImGui::End();
         }
 
@@ -445,6 +512,12 @@ int main(int, char**)
                     {
                         to_delete = i;
                     }
+                    ImGui::SameLine();
+                    std::string preview_label = "Preview##plate_" + std::to_string(i);
+                    if (ImGui::Button(preview_label.c_str()))
+                    {
+                        plates[i]->preview_open = true;
+                    }
                 }
             }
             if (to_delete != -1)
@@ -522,6 +595,37 @@ int main(int, char**)
             }
             
             ImGui::EndPopup();
+        }
+
+        // Preview windows
+        for (size_t i = 0; i < plates.size(); ++i)
+        {
+            if (plates[i]->preview_open)
+            {
+                std::string win_name = "Plate Preview ##" + std::to_string(i);
+                if (ImGui::Begin(win_name.c_str(), &plates[i]->preview_open))
+                {
+                    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    float cell_w = 2.0f; // size for each pixel
+                    for(int y=0;y<plates[i]->height;++y)
+                    {
+                        for(int x=0;x<plates[i]->width;++x)
+                        {
+                            int64_t val = plates[i]->data[x][y];
+                            float norm = (float)val / 255.0f;
+                            if(norm < 0.0f) norm = 0.0f; if(norm > 1.0f) norm = 1.0f;
+                            float intensity = val > 0 ? norm : 0.0f;
+                            ImU32 col = ImGui::GetColorU32(ImVec4(intensity, intensity, intensity, 1.0f));
+                            ImVec2 p_min = ImVec2(pos.x + x*cell_w, pos.y + y*cell_w);
+                            ImVec2 p_max = ImVec2(p_min.x + cell_w, p_min.y + cell_w);
+                            draw_list->AddRectFilled(p_min, p_max, col);
+                        }
+                    }
+                    ImGui::Dummy(ImVec2(plates[i]->width*cell_w, plates[i]->height*cell_w));
+                }
+                ImGui::End();
+            }
         }
 
         // Modal for the Preferences window
