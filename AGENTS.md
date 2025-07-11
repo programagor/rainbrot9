@@ -19,3 +19,22 @@ This repository uses a simple Makefile and SDL2-based dependencies.
    The resulting executable `rainbrot9` will be placed in the repository root.
 
 Run `make clean` to remove build artifacts.
+
+# Project structure
+
+- `main.cpp` - entry point and GUI logic
+- `beam.hpp`/`beam.cpp` - beam parameters and sampling
+- `plate.hpp`/`plate.cpp` - plate projection data
+- `model.hpp`/`model.cpp` - fractal model registry
+- `quaternion.hpp` - quaternion math utilities
+- `tests/` - Catch2 unit tests
+- `external/imgui` - Dear ImGui submodule
+
+# Testing
+
+Build and run the unit tests with:
+
+```bash
+make test
+./test_runner
+```
