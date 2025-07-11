@@ -5,6 +5,8 @@
 #include <memory>
 #include <thread>
 #include <mutex>
+#include <atomic>
+#include <chrono>
 #include <stdio.h>
 #include <SDL.h>
 #include <SDL_opengl.h>
@@ -46,6 +48,9 @@ public:
     int samples_total;
     int samples_current;
     std::string seed_start; // String seed
+    std::thread worker;
+    std::atomic<bool> running{false};
+    std::atomic<bool> paused{false};
     // MPFR_PRNG_state state_current;   // State of the PRNG
 
     Beam() : samples_total(0), samples_current(0), seed_start("") {
@@ -67,55 +72,156 @@ public:
     }
 
     ~Beam() {
-        printf("Entering Beam destructor\n");
-        // Destructor to clean up if needed
+        running = false;
+        if (worker.joinable())
+            worker.join();
     }
 
     void get_sample(/*args*/) {
         // Method to get a sample
     }
+
+    void RunLoop() {
+        while (running) {
+            if (paused) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            if (samples_current < samples_total) {
+                samples_current++;
+            } else {
+                running = false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    void Start() {
+        if (running)
+            return;
+        running = true;
+        paused = false;
+        worker = std::thread(&Beam::RunLoop, this);
+    }
+
+    void Pause() { paused = !paused; }
+
+    void Reset() { samples_current = 0; }
 };
 
 
 // Plate class
 class Plate {
 public:
-    /* 4D to 3D projection matrix */
-    mpfr_t projection4[5][4];        // Projection matrix
-    /*  3D to 2D projection matrix */
-    mpfr_t projection3[4][3];        // Projection matrix
-    // ColorMap colormap;              // Color map
+    /* 4D to 2D projection matrix */
+    mpfr_t projection2[2][4];        // Projection matrix
     int width, height;               // Dimensions
-    std::vector<std::vector<int64_t>> data; // Data
-    //std::vector<std::mutex> row_locks; // Locks for each row (TODO: make ReadWriteLock)
+    std::vector<std::vector<int64_t>> data; // raster data indexed [y][x]
+    std::vector<std::mutex> row_locks;       // Mutex per raster row
+    std::vector<ImVec4> colormap;    // Simple color map
+    GLuint texture = 0;              // OpenGL texture for preview
 
     Plate(int w, int h) : width(w), height(h) {
         // Initialize MPFR variables
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 2; i++)
             for (int j = 0; j < 4; j++)
-                mpfr_init(projection4[i][j]);
+                mpfr_init(projection2[i][j]);
 
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 3; j++)
-                mpfr_init(projection3[i][j]);
+        // Initialize raster and locks
+        data.resize(height, std::vector<int64_t>(width, 0));
+        row_locks.resize(height);
 
-        // Initialize data and locks
-        data.resize(width, std::vector<int64_t>(height, 0));
-        // row_locks.resize(height); // This makes the compiler angry!
-        //for (int i = 0; i < height; i++)
-        //    row_locks.push_back(std::mutex());
-        // This still makes the compiler angry!
+        // Default grayscale colormap
+        colormap.resize(16);
+        for (size_t i = 0; i < colormap.size(); ++i) {
+            float t = (float)i / (float)(colormap.size() - 1);
+            colormap[i] = ImVec4(t, t, t, 1.0f);
+        }
     }
     
     ~Plate() {
         // Clear MPFR variables
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 2; i++)
             for (int j = 0; j < 4; j++)
-                mpfr_clear(projection4[i][j]);
+                mpfr_clear(projection2[i][j]);
+        if (texture) {
+            glDeleteTextures(1, &texture);
+            texture = 0;
+        }
+    }
 
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 3; j++)
-                mpfr_clear(projection3[i][j]);
+    // Project a quaternion onto the 2D plate. Result stored in x, y.
+    void Project(const Quaternion& q, mpfr_t x, mpfr_t y) const {
+        mpfr_set_zero(x, 0);
+        mpfr_set_zero(y, 0);
+
+        mpfr_t tmp;
+        mpfr_init(tmp);
+
+        const mpfr_t* components[4] = { &q.r, &q.i, &q.j, &q.k };
+
+        for (int j = 0; j < 4; ++j) {
+            mpfr_mul(tmp, projection2[0][j], *components[j], MPFR_RNDN);
+            mpfr_add(x, x, tmp, MPFR_RNDN);
+
+            mpfr_mul(tmp, projection2[1][j], *components[j], MPFR_RNDN);
+            mpfr_add(y, y, tmp, MPFR_RNDN);
+        }
+
+        mpfr_clear(tmp);
+    }
+
+    // Receive a quaternion and add a hit to the data buffer.
+    void ReceiveQuaternion(const Quaternion& q, int iterCount) {
+        mpfr_t x, y;
+        mpfr_init(x);
+        mpfr_init(y);
+
+        Project(q, x, y);
+
+        double xd = mpfr_get_d(x, MPFR_RNDN);
+        double yd = mpfr_get_d(y, MPFR_RNDN);
+
+        mpfr_clear(x);
+        mpfr_clear(y);
+
+        // Map coordinates in [-1,1]x[-1,1] to pixel grid
+        int xi = static_cast<int>((xd + 1.0) * 0.5 * (width  - 1));
+        int yi = static_cast<int>((yd + 1.0) * 0.5 * (height - 1));
+
+        if (xi >= 0 && xi < width && yi >= 0 && yi < height) {
+            std::lock_guard<std::mutex> guard(row_locks[yi]);
+            data[yi][xi] += iterCount;
+        }
+    }
+
+    void UpdateTexture() {
+        std::vector<uint8_t> buffer(width * height * 3);
+        int64_t maxVal = 0;
+        for (int y = 0; y < height; ++y)
+            for (int x = 0; x < width; ++x)
+                maxVal = std::max(maxVal, data[y][x]);
+        if (maxVal == 0) maxVal = 1;
+        for (int y = 0; y < height; ++y) {
+            std::lock_guard<std::mutex> guard(row_locks[y]);
+            for (int x = 0; x < width; ++x) {
+                float t = (float)data[y][x] / (float)maxVal;
+                size_t idx = (size_t)(t * (colormap.size() - 1));
+                const ImVec4& c = colormap[idx];
+                size_t off = (y * width + x) * 3;
+                buffer[off + 0] = (uint8_t)(c.x * 255.0f);
+                buffer[off + 1] = (uint8_t)(c.y * 255.0f);
+                buffer[off + 2] = (uint8_t)(c.z * 255.0f);
+            }
+        }
+
+        if (texture == 0)
+            glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
+                     GL_UNSIGNED_BYTE, buffer.data());
     }
     
     // Methods for loading, saving, receiving a quaternion, etc.
@@ -356,6 +462,20 @@ int main(int, char**)
                     ImGui::ProgressBar(beams[i]->samples_total ? (float)beams[i]->samples_current / (float)beams[i]->samples_total : 0);
                     ImGui::Text("Seed: %s", beams[i]->seed_start.c_str());
 
+                    ImGui::Text("Status: %s", beams[i]->running ? (beams[i]->paused ? "paused" : "running") : "stopped");
+
+                    std::string run_label = "Run##beam_" + std::to_string(i);
+                    if (ImGui::Button(run_label.c_str()))
+                        beams[i]->Start();
+                    ImGui::SameLine();
+                    std::string pause_label = "Pause##beam_" + std::to_string(i);
+                    if (ImGui::Button(pause_label.c_str()))
+                        beams[i]->Pause();
+                    ImGui::SameLine();
+                    std::string reset_label = "Reset##beam_" + std::to_string(i);
+                    if (ImGui::Button(reset_label.c_str()))
+                        beams[i]->Reset();
+
                     // create string for label ("Edit" + i):
                     std::string edit_label = "Edit##beam_" + std::to_string(i);
                     if (ImGui::Button(edit_label.c_str()))
@@ -504,6 +624,16 @@ int main(int, char**)
                     ImGui::Text("Width: %d", plates[i]->width);
                     ImGui::Text("Height: %d", plates[i]->height);
 
+                    plates[i]->UpdateTexture();
+                    ImGui::Image((void*)(intptr_t)plates[i]->texture, ImVec2(128, 128));
+
+                    for (size_t c = 0; c < plates[i]->colormap.size(); ++c) {
+                        char c_label[32];
+                        sprintf(c_label, "C%zu##plate_%zu", c, i);
+                        ImGui::ColorEdit4(c_label, (float*)&plates[i]->colormap[c], ImGuiColorEditFlags_NoInputs);
+                        if ((c & 3) != 3) ImGui::SameLine();
+                    }
+
                     // create string for label ("Edit" + i):
                     std::string edit_label = "Edit##plate_" + std::to_string(i);
                     if (ImGui::Button(edit_label.c_str()))
@@ -548,6 +678,7 @@ int main(int, char**)
         {
             static int width = 1024;
             static int height = 1024;
+            static ImVec4 colors[16];
 
             static bool preload_variables_from_vector = true;
 
@@ -557,11 +688,20 @@ int main(int, char**)
                 Plate* plate = plates[edit_plate_index].get();
                 width = plate->width;
                 height = plate->height;
+                for (size_t c = 0; c < plate->colormap.size() && c < 16; ++c)
+                    colors[c] = plate->colormap[c];
                 preload_variables_from_vector = false;
             }
 
             ImGui::InputInt("Width", &width);
             ImGui::InputInt("Height", &height);
+
+            for (int c = 0; c < 16; ++c) {
+                char label[16];
+                sprintf(label, "C%d", c);
+                ImGui::ColorEdit4(label, (float*)&colors[c], ImGuiColorEditFlags_NoInputs);
+                if ((c & 3) != 3) ImGui::SameLine();
+            }
 
             if (ImGui::Button("OK", ImVec2(120, 0))) 
             {
@@ -580,6 +720,7 @@ int main(int, char**)
                 Plate* plate = plates[edit_plate_index].get();
                 plate->width = width;
                 plate->height = height;
+                plate->colormap.assign(colors, colors + 16);
 
                 
                 ImGui::CloseCurrentPopup();
