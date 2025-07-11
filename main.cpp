@@ -25,6 +25,9 @@
 // Copy constructor and assignment operator are defined.
 // .set(4*str), .set(4*double), 
 #include "quaternion.hpp"
+#include "beam.hpp"
+#include "plate.hpp"
+#include "model.hpp"
 
 // C++11 make_unique and make_shared
 template <typename T, typename... Args>
@@ -38,115 +41,7 @@ std::shared_ptr<T> make_shared(Args&&... args) {
     return std::shared_ptr<T>(new T(std::forward<Args>(args)...));
 }
 
-// Beam class with Quaternion for mu and sigma
-class Beam {
-public:
-    Quaternion mu;                  // Quaternion for mu parameters
-    Quaternion sigma;               // Quaternion for sigma parameters
-    int samples_total;
-    int samples_current;
-    gmp_randstate_t state_current;   // State of the PRNG
-    //std::string seed_start; // String seed
-    mpz_t seed_start; // Integer seed
-    //MPFR_PRNG_state state_current;   // State of the PRNG
 
-    Beam() : samples_total(0), samples_current(0) {
-        printf("Entering Beam constructor. Parameters: %d %d\n", samples_total, samples_current);
-        // initialize quaternion variables
-        mu.set(0.0, 0.0, 0.0, 0.0);
-
-        sigma.set(0.0, 0.0, 0.0, 0.0);
-        gmp_randinit_default(state_current);
-
-        mpz_init(seed_start);
-    }
-
-    ~Beam() {
-        mpz_clear(seed_start);
-
-        printf("Entering Beam destructor\n");
-        // Destructor to clean up if needed
-    }
-
-    void get_sample(Quaternion& q) {
-
-        // If first sample, need to seed the PRNG
-        if(samples_current == 0)
-        {
-            gmp_randseed(this->state_current, this->seed_start);
-        }
-
-        // Use PRNG and the Box-Muller transform to get a sample, which is stored in q
-        static Quaternion vars;
-
-        // Get two random numbers between 0 and 1
-        mpfr_urandom(vars.r, this->state_current, MPFR_RNDN);
-        mpfr_urandom(vars.i, this->state_current, MPFR_RNDN);
-        mpfr_urandom(vars.j, this->state_current, MPFR_RNDN);
-        mpfr_urandom(vars.k, this->state_current, MPFR_RNDN);
-
-        // Multiply by sigma and add mu
-        // q.r = q.r * sigma.r + mu.r;
-        // q.i = q.i * sigma.i + mu.i;
-        // q.j = q.j * sigma.j + mu.j;
-        // q.k = q.k * sigma.k + mu.k;
-
-    }
-};
-
-// Plate class
-class Plate {
-public:
-    /* 4D to 3D projection matrix */
-    mpfr_t projection4[5][4];        // Projection matrix
-    /*  3D to 2D projection matrix */
-    mpfr_t projection3[4][3];        // Projection matrix
-    // ColorMap colormap;              // Color map
-    int width, height;               // Dimensions
-    std::vector<std::vector<int64_t>> data; // Data
-    //std::vector<std::mutex> row_locks; // Locks for each row (TODO: make ReadWriteLock)
-
-    Plate(int w, int h) : width(w), height(h) {
-        // Initialize MPFR variables
-        for (int i = 0; i < 5; i++)
-            for (int j = 0; j < 4; j++)
-                mpfr_init(projection4[i][j]);
-
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 3; j++)
-                mpfr_init(projection3[i][j]);
-
-        // Initialize data and locks
-        data.resize(width, std::vector<int64_t>(height, 0));
-        // row_locks.resize(height); // This makes the compiler angry!
-        //for (int i = 0; i < height; i++)
-        //    row_locks.push_back(std::mutex());
-        // This still makes the compiler angry!
-    }
-    
-    ~Plate() {
-        // Clear MPFR variables
-        for (int i = 0; i < 5; i++)
-            for (int j = 0; j < 4; j++)
-                mpfr_clear(projection4[i][j]);
-
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 3; j++)
-                mpfr_clear(projection3[i][j]);
-    }
-    
-    // Methods for loading, saving, receiving a quaternion, etc.
-    // void loadFromFile(const std::string& filename);
-    // void saveToFile(const std::string& filename);
-    // void receiveQuaternion(const Quaternion& q, int iterCount);
-    // std::vector<std::vector<uint8_t>> getScaledData() const;
-
-    // Method to insert a secondary photon into the projection pipeline.
-    void insertPhoton(const Quaternion& q, int energy) {
-        // First we project the 4D quaternion into 3D space
-        
-    }
-};
 
 // Global state
 
@@ -160,7 +55,7 @@ bool beams_on = false;
 
 // Model section
 bool show_model_window = true;
-const char* models[] = { "Mandelbrot", "Julia", "Burning Ship", "Tricorn", "Mandelbar", "Phoenix", "Newton", "Halley", "Householder", "Laguerre", "Secant", "Inverse", "Quartic", "Quintic", "Sextic", "Heptic", "Octic", "Nonic", "Decic", "Cubic", "Quadratic", "Linear", "Identity", "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten" };
+std::vector<std::string> models = ModelRegistry::list();
 int item_current = 0;
 int max_iterations = 100;
 float escape_radius = 64.0f;
@@ -185,6 +80,14 @@ void InitializeData() {
 
     // Add one plate with default values
     //plates.push_back({1024, 768, 0, std::vector<std::vector<int64_t>>(1024, std::vector<int64_t>(768, 0))});
+}
+
+static bool VectorGetter(void* data, int idx, const char** out_text)
+{
+    auto& vec = *static_cast<std::vector<std::string>*>(data);
+    if (idx < 0 || idx >= (int)vec.size()) return false;
+    *out_text = vec[idx].c_str();
+    return true;
 }
 
 static void ShowMainMenuBar()
@@ -503,7 +406,7 @@ int main(int, char**)
         {
             ImGui::Begin("Model", &show_model_window);
             // Drop down for model
-            ImGui::Combo("Model", &item_current, models, IM_ARRAYSIZE(models));
+            ImGui::Combo("Model", &item_current, VectorGetter, &models, models.size());
             // Max Iterations
             ImGui::InputInt("Max Iterations", &max_iterations);
             // Escape Radius
