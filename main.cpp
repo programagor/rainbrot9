@@ -300,33 +300,36 @@ int main(int, char**)
                     }
                     ImGui::SameLine();
                     std::string start_label = "Start##beam_" + std::to_string(i);
-                    if (beams[i]->state == Beam::Running)
+                    bool disable_start = (beams[i]->state == Beam::Running);
+                    if (disable_start)
                         ImGui::BeginDisabled();
                     if (ImGui::Button(start_label.c_str()))
                     {
                         beams[i]->start();
                     }
-                    if (beams[i]->state == Beam::Running)
+                    if (disable_start)
                         ImGui::EndDisabled();
                     ImGui::SameLine();
                     std::string pause_label = "Pause##beam_" + std::to_string(i);
-                    if (beams[i]->state != Beam::Running)
+                    bool disable_pause = (beams[i]->state != Beam::Running);
+                    if (disable_pause)
                         ImGui::BeginDisabled();
                     if (ImGui::Button(pause_label.c_str()))
                     {
                         beams[i]->pause();
                     }
-                    if (beams[i]->state != Beam::Running)
+                    if (disable_pause)
                         ImGui::EndDisabled();
                     ImGui::SameLine();
                     std::string reset_label = "Reset##beam_" + std::to_string(i);
-                    if (beams[i]->state != Beam::Paused)
+                    bool disable_reset = (beams[i]->state != Beam::Paused);
+                    if (disable_reset)
                         ImGui::BeginDisabled();
                     if (ImGui::Button(reset_label.c_str()))
                     {
                         beams[i]->reset();
                     }
-                    if (beams[i]->state != Beam::Paused)
+                    if (disable_reset)
                         ImGui::EndDisabled();
                 }
             }
@@ -342,35 +345,38 @@ int main(int, char**)
                 edit_beam_index = -1; // New beam
             }
             ImGui::SameLine();
-            if (beams_on)
+            bool disable_global_start = beams_on;
+            if (disable_global_start)
                 ImGui::BeginDisabled();
             if (ImGui::Button("Start"))
             {
                 for(auto& b : beams) b->start();
                 beams_on = true;
             }
-            if (beams_on)
+            if (disable_global_start)
                 ImGui::EndDisabled();
             ImGui::SameLine();
-            if (!beams_on)
+            bool disable_global_pause = !beams_on;
+            if (disable_global_pause)
                 ImGui::BeginDisabled();
             if (ImGui::Button("Pause"))
             {
                 for(auto& b : beams) b->pause();
                 beams_on = false;
             }
-            if (!beams_on)
+            if (disable_global_pause)
                 ImGui::EndDisabled();
             ImGui::SameLine();
             bool paused_any = false;
             for(auto& b : beams) if(b->state == Beam::Paused) paused_any = true;
-            if (!paused_any)
+            bool disable_global_reset = !paused_any;
+            if (disable_global_reset)
                 ImGui::BeginDisabled();
             if (ImGui::Button("Reset"))
             {
                 for(auto& b : beams) b->reset();
             }
-            if (!paused_any)
+            if (disable_global_reset)
                 ImGui::EndDisabled();
             ImGui::End();
         }
