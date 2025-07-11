@@ -5,6 +5,7 @@
 #include <memory>
 #include <thread>
 #include <mutex>
+#include <chrono>
 #include <stdio.h>
 #include <SDL.h>
 #include <SDL_opengl.h>
@@ -26,6 +27,24 @@
 // .set(4*str), .set(4*double), 
 #include "quaternion.hpp"
 
+struct Emulsion {
+    std::vector<ImVec4> colors;
+    Emulsion() {
+        colors.push_back(ImVec4(0,0,0,1));
+        colors.push_back(ImVec4(1,1,1,1));
+    }
+    ImVec4 map(int iter) const {
+        if(iter < 0) iter = 0;
+        if(iter >= (int)colors.size()) iter = colors.size()-1;
+        return colors[iter];
+    }
+};
+
+class Plate; // forward declaration
+extern std::vector<std::unique_ptr<Plate>> plates;
+extern int max_iterations;
+extern float escape_radius;
+
 // C++11 make_unique and make_shared
 template <typename T, typename... Args>
 std::unique_ptr<T> make_unique(Args&&... args) {
@@ -46,9 +65,11 @@ public:
     int samples_total;
     int samples_current;
     gmp_randstate_t state_current;   // State of the PRNG
-    //std::string seed_start; // String seed
-    mpz_t seed_start; // Integer seed
-    //MPFR_PRNG_state state_current;   // State of the PRNG
+    mpz_t seed_start;                // Integer seed
+    std::thread worker;
+    bool running = false;
+    bool stop_flag = false;
+    bool paused = false;
 
     Beam() : samples_total(0), samples_current(0) {
         printf("Entering Beam constructor. Parameters: %d %d\n", samples_total, samples_current);
@@ -62,10 +83,9 @@ public:
     }
 
     ~Beam() {
+        stop();
         mpz_clear(seed_start);
-
         printf("Entering Beam destructor\n");
-        // Destructor to clean up if needed
     }
 
     void get_sample(Quaternion& q) {
@@ -92,59 +112,90 @@ public:
         // q.k = q.k * sigma.k + mu.k;
 
     }
+
+    void workerLoop() {
+        Quaternion z, c, tmp;
+        mpfr_t norm;
+        mpfr_init(norm);
+        while(!stop_flag) {
+            if(paused){ std::this_thread::sleep_for(std::chrono::milliseconds(10)); continue; }
+            if(samples_total && samples_current >= samples_total){ break; }
+            get_sample(c);
+            z.zero();
+            int iter = 0;
+            while(iter < max_iterations) {
+                z.mul(z, tmp); // z = z*z
+                tmp.add(c, z); // z = tmp + c
+                z.norm_sq(norm);
+                if(mpfr_get_d(norm, MPFR_RNDN) > escape_radius) break;
+                iter++;
+            }
+            for(auto& p : plates) p->insertPhoton(z, iter);
+            samples_current++;
+        }
+        running = false;
+        mpfr_clear(norm);
+    }
+
+    void start() {
+        if(running) return;
+        stop_flag = false; paused = false; running = true;
+        worker = std::thread(&Beam::workerLoop, this);
+    }
+
+    void pause() { paused = true; }
+    void resume() { paused = false; }
+    void stop() {
+        stop_flag = true; paused = false;
+        if(worker.joinable()) worker.join();
+        running = false;
+    }
 };
 
 // Plate class
 class Plate {
 public:
-    /* 4D to 3D projection matrix */
-    mpfr_t projection4[5][4];        // Projection matrix
-    /*  3D to 2D projection matrix */
-    mpfr_t projection3[4][3];        // Projection matrix
-    // ColorMap colormap;              // Color map
-    int width, height;               // Dimensions
-    std::vector<std::vector<int64_t>> data; // Data
-    //std::vector<std::mutex> row_locks; // Locks for each row (TODO: make ReadWriteLock)
+    mpfr_t projection[2][4]; // 4D -> 2D matrix
+    int width, height;
+    Emulsion emulsion;
+    std::vector<std::vector<int>> data;
+    std::vector<std::mutex> row_locks;
 
     Plate(int w, int h) : width(w), height(h) {
-        // Initialize MPFR variables
-        for (int i = 0; i < 5; i++)
-            for (int j = 0; j < 4; j++)
-                mpfr_init(projection4[i][j]);
-
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 3; j++)
-                mpfr_init(projection3[i][j]);
-
-        // Initialize data and locks
-        data.resize(width, std::vector<int64_t>(height, 0));
-        // row_locks.resize(height); // This makes the compiler angry!
-        //for (int i = 0; i < height; i++)
-        //    row_locks.push_back(std::mutex());
-        // This still makes the compiler angry!
+        for(int i=0;i<2;i++)
+            for(int j=0;j<4;j++)
+                mpfr_init_set_d(projection[i][j], (i==j)?1.0:0.0, MPFR_RNDN);
+        data.resize(height, std::vector<int>(width, 0));
+        row_locks.resize(height);
     }
-    
+
     ~Plate() {
-        // Clear MPFR variables
-        for (int i = 0; i < 5; i++)
-            for (int j = 0; j < 4; j++)
-                mpfr_clear(projection4[i][j]);
-
-        for (int i = 0; i < 4; i++)
-            for (int j = 0; j < 3; j++)
-                mpfr_clear(projection3[i][j]);
+        for(int i=0;i<2;i++)
+            for(int j=0;j<4;j++)
+                mpfr_clear(projection[i][j]);
     }
-    
-    // Methods for loading, saving, receiving a quaternion, etc.
-    // void loadFromFile(const std::string& filename);
-    // void saveToFile(const std::string& filename);
-    // void receiveQuaternion(const Quaternion& q, int iterCount);
-    // std::vector<std::vector<uint8_t>> getScaledData() const;
 
-    // Method to insert a secondary photon into the projection pipeline.
-    void insertPhoton(const Quaternion& q, int energy) {
-        // First we project the 4D quaternion into 3D space
-        
+    void insertPhoton(const Quaternion& q, int iter) {
+        mpfr_t x, y, tmp;
+        mpfr_inits(x, y, tmp, (mpfr_ptr)0);
+        // x = proj[0]*q
+        mpfr_mul(x, projection[0][0], q.r, MPFR_RNDN);
+        mpfr_mul(tmp, projection[0][1], q.i, MPFR_RNDN); mpfr_add(x, x, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, projection[0][2], q.j, MPFR_RNDN); mpfr_add(x, x, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, projection[0][3], q.k, MPFR_RNDN); mpfr_add(x, x, tmp, MPFR_RNDN);
+
+        mpfr_mul(y, projection[1][0], q.r, MPFR_RNDN);
+        mpfr_mul(tmp, projection[1][1], q.i, MPFR_RNDN); mpfr_add(y, y, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, projection[1][2], q.j, MPFR_RNDN); mpfr_add(y, y, tmp, MPFR_RNDN);
+        mpfr_mul(tmp, projection[1][3], q.k, MPFR_RNDN); mpfr_add(y, y, tmp, MPFR_RNDN);
+
+        int xi = static_cast<int>(mpfr_get_d(x, MPFR_RNDN)) + width/2;
+        int yi = static_cast<int>(mpfr_get_d(y, MPFR_RNDN)) + height/2;
+        if(xi<0||xi>=width||yi<0||yi>=height){ mpfr_clears(x,y,tmp,(mpfr_ptr)0); return; }
+
+        std::lock_guard<std::mutex> lk(row_locks[yi]);
+        data[yi][xi] = iter;
+        mpfr_clears(x,y,tmp,(mpfr_ptr)0);
     }
 };
 
@@ -408,6 +459,18 @@ int main(int, char**)
                 show_beam_modal = true;
                 edit_beam_index = -1; // New beam
             }
+            ImGui::SameLine();
+            if(ImGui::Button(beams_on?"Pause":"Run"))
+            {
+                if(beams_on){ for(auto& b:beams) b->pause(); beams_on=false; }
+                else { for(auto& b:beams) { if(!b->running) b->start(); else b->resume(); } beams_on=true; }
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("Reset"))
+            {
+                for(auto& b:beams) b->stop();
+                beams_on=false;
+            }
             ImGui::End();
         }
 
@@ -526,6 +589,21 @@ int main(int, char**)
                 {
                     ImGui::Text("Width: %d", plates[i]->width);
                     ImGui::Text("Height: %d", plates[i]->height);
+                    ImGui::Separator();
+                    for(int y=0;y<ImMin(plates[i]->height,5);y++){
+                        for(int x=0;x<ImMin(plates[i]->width,5);x++){
+                            int iter = plates[i]->data[y][x];
+                            ImVec4 col = plates[i]->emulsion.map(iter);
+                            ImGui::PushStyleColor(ImGuiCol_Text, col);
+                            ImGui::Text("%d", iter);
+                            ImGui::PopStyleColor();
+                            ImGui::SameLine();
+                        }
+                        ImGui::NewLine();
+                    }
+                    for(size_t c=0;c<plates[i]->emulsion.colors.size();++c){
+                        ImGui::ColorEdit4(("Color"+std::to_string(c)).c_str(), (float*)&plates[i]->emulsion.colors[c], ImGuiColorEditFlags_NoInputs);
+                    }
 
                     // create string for label ("Edit" + i):
                     std::string edit_label = "Edit##plate_" + std::to_string(i);
