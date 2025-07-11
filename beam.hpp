@@ -7,6 +7,9 @@
 
 class Beam {
 public:
+    enum BeamState { Idle, Running, Paused };
+
+    BeamState state;
     Quaternion mu;               // Mean value for seed generation
     Quaternion sigma;            // Standard deviation for seed generation
     int samples_total;           // How many seeds to generate
@@ -26,6 +29,11 @@ public:
     // Iterate z = z^2 + c starting from z=0.
     // Returns true if the orbit escapes within max_iterations.
     bool iterate_seed(const Quaternion& c, Quaternion& hit_point, int& iter);
+
+    // Control functions
+    void start();
+    void pause();
+    void reset();
 };
 
 #endif // BEAM_HPP

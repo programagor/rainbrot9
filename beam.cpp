@@ -1,7 +1,7 @@
 #include "beam.hpp"
 #include <cstdio>
 
-Beam::Beam() : samples_total(0), samples_current(0), max_iterations(64), escape_radius(4.0) {
+Beam::Beam() : state(Idle), samples_total(0), samples_current(0), max_iterations(64), escape_radius(4.0) {
     mu.set(0.0, 0.0, 0.0, 0.0);
     sigma.set(1.0, 1.0, 1.0, 1.0);
     gmp_randinit_default(state_current);
@@ -55,4 +55,17 @@ bool Beam::iterate_seed(const Quaternion& c, Quaternion& hit_point, int& iter) {
     }
     hit_point = z;
     return false;
+}
+
+void Beam::start() {
+    state = Running;
+}
+
+void Beam::pause() {
+    state = Paused;
+}
+
+void Beam::reset() {
+    samples_current = 0;
+    state = Idle;
 }

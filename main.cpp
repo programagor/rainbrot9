@@ -311,6 +311,23 @@ int main(int, char**)
                 show_beam_modal = true;
                 edit_beam_index = -1; // New beam
             }
+            ImGui::SameLine();
+            if (ImGui::Button("Start"))
+            {
+                for(auto& b : beams) b->start();
+                beams_on = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Pause"))
+            {
+                for(auto& b : beams) b->pause();
+                beams_on = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Reset"))
+            {
+                for(auto& b : beams) b->reset();
+            }
             ImGui::End();
         }
 
