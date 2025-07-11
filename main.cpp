@@ -5,6 +5,7 @@
 #include <memory>
 #include <thread>
 #include <mutex>
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <stdio.h>
@@ -119,7 +120,7 @@ public:
                 mpfr_init(projection[i][j]);
 
         data.resize(height, std::vector<int64_t>(width, 0));
-        row_locks.resize(height);
+        row_locks.assign(height, std::mutex{});
     }
     
     ~Plate() {
