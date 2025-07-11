@@ -17,4 +17,3 @@ make
 ```
 
 The executable `rainbrot9` will be produced in the repository root.  Run `make clean` to remove build artifacts.
-
